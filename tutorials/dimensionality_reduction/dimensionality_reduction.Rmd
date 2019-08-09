@@ -1,0 +1,345 @@
+---
+title: "Dimensionality reduction: Making maps from data"
+author: "Mark A. Thornton, Ph. D."
+date: "August 14, 2019"
+output:
+  html_notebook:
+    theme: readable
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=F, results="hide", include=F}
+# load packages
+if(!require(psych)) install.packages("psych"); require(psych)
+if(!require(umap)) install.packages("umap"); require(umap)
+if(!require(bcv)) install.packages("bcv"); require(bcv)
+if(!require(GPArotation)) install.packages("GPArotation"); require(GPArotation)
+if(!require(smacof)) install.packages("smacof"); require(smacof)
+if(!require(pracma)) install.packages("pracma"); require(pracma)
+if(!require(wordcloud)) install.packages("wordcloud"); require(wordcloud)
+if(!require(Rtsne)) install.packages("Rtsne"); require(Rtsne)
+if(!require(matlab)) install.packages("matlab"); require(matlab)
+if(!require(pls)) install.packages("pls"); require(pls)
+```
+
+```{r, echo=F, results="hide", include=F}
+rs01 <- function(x){
+  x <- x-min(x)
+  x <- x/max(x)
+  return(x)
+}
+```
+
+
+## Introduction
+
+Dimensionality reduction is a generic term for describing any technique which allows you to get a smaller number of variables out of a larger set of variables. The simplest way to reduce the dimensionality of a dataset would arguably be to pick a random subset of the desired size out of the larger set of variables. This method can be surprisingly effective for certain applications. However, a random subset of variables is rarely the best possible summary of a dataset. We can usually do better if we pick our variables carefully or synthesize new variables which parsimoniously describe patterns in the data. The former technique - picking the best subset of existing variables - is referred to as "feature selection" or "feature elimination." The latter technique - synthesizing new variables to summarize the old - is referred to as "feature projection" or "feature extraction". Although feature selection is a topic worthy of extensive discussion, in this tutorial we will focus on feature extraction methods.
+
+Most feature extraction techniques involve a fair bit of math, such as matrix factorization. This math is often quite elegant and can be helpful for deepening one's understanding. However, in the interests of time and accessibility, in this tutorial we will stick to a more conceptual description of these techniques. The goal is for you to come away with a practical understanding of dimensionality reduction sufficient to be able to apply these techniques.
+
+### Why bother?
+
+Before we dive into the details of how to reduce the dimensionality of a dataset, let us first consider **why** we would want to do so in the first place. There are two main categories of reasons for applying dimensionality reduction techniques: interpretational and computational.
+
+* Interpretational motivations:
+    + **Visualization**: in classical physics and everyday life, the universe consists of just three spatial dimensions. Still worse, the screens and paper upon which we read and write are effectively just 2D. We can use some tricks - such as color mapping, or more recently, animated or interactive plots (check out Jeremy Manning's [hypertools](https://github.com/ContextLab/hypertools)) - to squeeze more information into a figure. However, in general it's safe to say that data must be low-dimensional to be effectively visualized. Visualization is a key part of the scientific process, so if we have high-dimensional data we need to find some way to reduce it to lower dimensionality.
+    + **Cognitive capacity**: this may come as no surprise, but humans have well-documented limits on their cognitive capacities. There are only so many ideas/concepts/percepts/etc. that we can hold in mind at the same time. High-dimensional models might be [necessary/better](https://psyarxiv.com/zdrfg/) for explaining the complexity of brain and behavior, but if your model has more parameters than you have fingers, it will likely be very hard for you to understand or explain to others. Dimensionality reduction is one way to achieve insight into such complexity.
+* Computational motivations:
+    + **Speed and memory**: computers also have limitations on their capacities. These limitations are often quite different from those of humans, but dimensionality reduction can help deal with them as well. Specifically, dimensionality reduction can help manage the memory requirements of data analysis, and also accelerate analyses, especially those with high [computational complexity](https://en.wikipedia.org/wiki/Computational_complexity_theory) dependent on the number of variables. In practical terms, this means that you can do more, faster, with less hardware.
+    + **Algorithmic friendliness**: common data analysis algorithms also have their own limitations, assumptions, and "preferences," independent of the hardware upon which they're running. For example, ordinary least squares regression (among other methods) doesn't work when you have more predictor variables than data points. No estimates will be returned for the "extra" variables. Even algorithms which can at least be estimated under such circumstances will often yield nonsense results do to overfitting - part of the [curse of dimensionality](https://en.wikipedia.org/wiki/Curse_of_dimensionality). Although special techniques have been developed to cope with this curse - such as penalized (ridge/Lasso) regression - reducing the dimensionality of the data is often an effective alternative. Moreover, many dimensionality reduction techniques will yield much "nicer" variables than those in the original data: standardized, orthogonalized, and with fewer outliers. These properties can help make model fitting easier, faster, and more trustworthy.
+
+## PCA
+
+Principal component analysis (PCA) is likely the single most popular dimensionality reduction techniques across scientific disciplines. It takes in your (likely correlated) variables and separates them out into the same number of uncorrelated components. These components can be added back together based on a set of weights to perfectly reconstruct your original data. Conveniently, the orthogonal components are also ordered by how much variance they explain in your original data, with the first component explaining the most variance, and so on. As a result, we can often discard many of the latter components, as they describe very little of what's happening in your dataset. This is how PCA achieves dimensionality reduction.
+
+Let's take a look at an example. The data below consists of average human ratings of 60 mental states (e.g. "pity") on 58 psychological dimensions, collected as part of [Thornton & Tamir, 2019, PsyArXiv](https://psyarxiv.com/gt6bw/). Although these are nominally distinct dimensions, the histogram below reveals that many are highly correlated. These correlations, and the large number of variables (dimensions) compared to observations (mental states) make these data a prime target for dimensionality reduction.
+```{r fig.height=6, fig.width=8}
+# load data
+d60 <- read.csv("alldims.csv")
+rownames(d60) <- d60$states
+d60 <- d60[,2:59]
+d60 <- scale(d60)
+
+# compute correlations
+cmat <- cor(d60)
+
+# plot histogram
+hist(cmat,xlab="R",main="Correlations between dimensions")
+
+```
+
+There are many different R functions for computing a PCA solution, but let's start with one of the built-in functions: 'prcomp' from the 'stats' package. As you can see below, we can prefectly recover the original variables by multiplying the PCA scores by the loadings.
+
+```{r}
+# fit PCA
+pcafit <- prcomp(d60)
+
+# reconstruct data matrix
+recon <- t(t(pcafit$x %*% t(pcafit$rotation)))  # note that we would have to add back in the mean if we hadn't already z-scored the data
+
+# compare to original data matrix
+sqrt(mean((recon-d60)^2))  # RMSE of recon ~0
+```
+
+However, not all of the components are needed to reconstruct the data matrix pretty well. For example, here we use only the first half of the components and still achieve a very low root mean square error (RMSE).
+```{r}
+# reconstruct data matrix
+recon <- t(t(pcafit$x[,1:30] %*% t(pcafit$rotation[,1:30])))
+
+# compare to original data matrix
+sqrt(mean((recon-d60)^2))
+```
+
+We can visualize how much variance in the original data each principal component explains using a scree plot. As you can see, the first few components explain a greatly disproportionate amount of the variance. Thus, we can reduce the dimensionality of this dataset simply retaining only the early components and discarding the rest.
+
+```{r fig.height=6, fig.width=8}
+# make scree plot
+plot(pcafit$sdev^2/dim(d60)[2]*100,axes=F,pch=19,type="o",
+     xlab="Number of components",ylab="% of total variance",main="Scree plot")
+axis(1,seq(1,59,5))
+axis(2)
+```
+
+### Choosing PC number
+
+One of the most important decisions in PCA is choosing how many components to retain. There are many ways of determining this, with a variety of advantages and disadvantages:
+
+* **Manual examination of scree plot** - examining the scree plot and looking for an "elbow" (inflection point) in the curve is most of the most straightforward ways to choose PC number. It has the advantage that common sense is a lot most robust than most computational methods, but the drawback is that subjective judgments of the scree plot may differ between observers.
+
+* **Kaiser criterion** - one of the oldest ways of determining how many factors to retain is the Kaiser criterion: retaining any component with an eigenvalue greater than one (i.e, any variable which account for more than 1/# of dimensions worth of total variance). This method almost always extracts too many components and is rarely the best choice.
+
+* **Velicer's Minimum Average Partial** - Velicer's MAP criterion conducts partial correlation analyses to derive an estimate of the most likely component number. It is a generally well-regarded method and a relatively safe choice to use in most cases.
+
+* **Bayesian information criterion** - BIC is a formal model comparison statistic that can be used to compare PCA solutions with different numbers of solutions. It can be sensitive to sample size and variable number.
+
+* **Likelihood ratio tests** - likelihood ratio (chi-square) tests are another approach for formal model comparison, but they are suboptimal for choosing PC number. This is due to their high sensitivity to sample size, meaning more PCs will be extracted as your sample size increases.
+
+* **Very Simple Structure** - VSS is a measure meant to maximize the interpretability of PCA results. VSS-1 indicates how well each variable loads onto a single component. VSS-2 indicates how well each variable loads onto two components. If interpretability is key to your application of PCA, this is often a good measure to consider. However, if you're strictly using PCA as a preprocessing step, then VSS may be less relevant. The 'VSS' function in the 'psych' package in R will report VSS as well as several of the other model comparison statistics mentioned above.
+
+```{r}
+# considering all possible solutions with 30 or fewer PCs
+VSS(d60,30)
+# (ignore all of the warnings that this prints.)
+```
+
+
+* **parallel analysis** - parallel analysis conducts simulations of PCA with the simulated data of the same size as your real data. The simulation is usually done via Monte Carlo (e.g., samples from a random normal distribution) or permuting your actual data. Either way, the simulated data should have many of the statistical features of your real data, but crucially, none of the covariance structure. The scree curve for these randomized analyses can then be compared to the actual scree curve. The number of PCs retained is determined by where these curves cross. This method can be slightly sensitive to sample size, but is generally considered a strong choice, and is highly popular. In R, it is implemented in 'fa.parallel' in the 'psych' package.
+
+```{r}
+fa.parallel(d60,fa="pc")
+```
+
+
+* **bi-cross-validation** - this is a very new technique introduced within the last decade. Normal cross-validation would involve fitting a PCA to a subset of the data, and then measuring it's performance (e.g., reconstruction error) in left-out observations. However, this approach - and indeed all of the other approaches to determine PC number - assume that the observed variables are the full set of possible variables. If instead you are sampling measured variables randomly from a population (e.g., thinking up survey items from a hypothetical population of possible questions) then this is an inappropriate assumption, and your results will be overfit to the specific variables you happened to measure. Bi-cross-validation solves this problem by leaving out data with respect to both rows (observations) and columns (variables) as shown below.
+
+![](http://alexhwilliams.info/itsneuronalblog/img/pca-crossval/bcv_holdout.png)
+
+A PCA is fit to Y(2,2), and then applied to Y(1,2) to generate pseudo-scores. A PCA-regression is trained to predict Y(2,1) from Y(2,2), and the weights are then applied to the Y(1,2) pseudo-scores to predict Y(1,1). Performance is measured in terms of RMSE of the Y(1,1) predictions. The component number with the best performance is retained. This process is helpfully implemented in the 'cv.svd.gabriel' function in the 'bcv' package in R.
+
+```{r}
+set.seed(1)  # set seed to get preproducible results
+perf <- matrix(NA,30,10)
+# perform 10 iterations to overcome C-V instability
+for (i in 1:10){
+  bcvfit <- cv.svd.gabriel(d60)
+  perf[,i]<-colMeans(bcvfit$msep)
+}
+which(rowMeans(perf)==min(rowMeans(perf)))-1 # substract 1 because 0 PCs are considered
+```
+
+You can see the results above for our mental state rating data. They suggest that an 11 PC solution achieves the best performance. This was the method we actually applied in the preprint cited above. 
+
+### Rotating solutions
+
+Once you have chosen how many PCs to extract, you may want to "rotate" your factor solution. Rotations generally help to increase the interpretability of PCA results by improving their simple structure (see VSS above). There are two main families of rotations: orthogonal, which retain the orthogonality of the original PCA solution, and oblique, which allow some degree of correlation between PCs. The most popular orthogonal rotation is varimax, and the most popular oblique rotation is oblimin - scores on PCs 1 & 2 are shown under each rotation below. All orthogonal rotations explain the same amount of variance as the unrotated solution. However, rotation does disrupt the order of eigenvalues: the PCs are no longer strictly ordered by how much variance they explain.
+
+
+```{r fig.height=3, fig.width=9}
+pv <- principal(d60, 2, rotate="varimax")
+po <- principal(d60, 2, rotate="oblimin")
+pal <- colorRamp(c("blue","grey","red"))
+layout(matrix(c(1:3),1,3))
+plot(pcafit$x[,1:2],pch=19,main="None",col=rgb(pal(rs01(d60[,"Valence"]))/255),cex=rs01(d60[,"Rationality"])+.5)
+plot(pv$scores,pch=19,main="varimax",col=rgb(pal(rs01(d60[,"Valence"]))/255),cex=rs01(d60[,"Rationality"])+.5)
+plot(po$scores,pch=19,main="oblimin",col=rgb(pal(rs01(d60[,"Valence"]))/255),cex=rs01(d60[,"Rationality"])+.5)
+```
+
+In this example, I have set the # of PCs = 2 for the purposes of visualization (otherwise the rotation happens in 11 dimensions, which is a bit confusing...). As you can see, the varimax rotation is literally just a rotation of the points in the original solution (the top of the "none" graph corresponds to the bottom right of the "varimax graph"). The oblimin graph sill looks similar (the top of the "none" is in the top right) but the scores have been allowed to correlate (r = -.26). 
+
+I've mapped two of the original dimensions onto the plots as color (Valence: positive red, negative blue) and size (rationality: rational large, emotional small) to illustrate how the rotations simplify the loadings. In the unrotated solution, PCs 1 and 2 are correlated with both of these dimensions, whereas in the rotated solutions, PC1 maps more cleanly onto valence, and PC2 maps more cleanly onto rationality.
+
+### Alternatives to PCA
+
+There are a number of matrix factorization methods that perform similar functions to PCA. I review a few prominent examples briefly below.
+
+#### Factor analysis
+
+Factor analysis refers to two quite different families of models: exploratory factor analyses, and confirmatory factor analyses. Confirmatory factor analyses are essentially structural equation models without the path model part. They are used to test theories about the number and structure of dimensions defining a set of measures, and are rarely used for dimensionality reduction per se. Exploratory factor analysis is more similar to PCA. In fact, most EFAs initialize themselves by conducting a PCA, and then perform an additional iterative optimization step thereafter.
+
+Some people have very strong feelings about the distinction between PCA and EFA, maintaining that PCA is inappropriate for most psychological applications. This position is predicated on the fact that PCA does not model error in its observed variables, whereas EFA does. Since most psychological variables have non-trivial measurement error, EFA is arguably a more appropriate choice. However, in practice these two approaches generally yield very similar results, so for most purposes this distinct is mostly theoretical. Moreover, the assumption of error free measurement is not unique to PCA: ordinary multiple regression technically assumes that the IVs have been measured without error.
+
+#### ICA
+
+Independent component analysis (ICA) is another approach used to decomposing data into a basis set. The goal of ICA is subtly different from PCA: PCA aims to identify component which explain the most variance in your data, whereas ICA aims to identify statistically independent components of your data. ICA is rarely used a dimensionality reduction technique in psychology, but is often used as a preprocessing step in neuroscience. It can be helpful for removing noise components from fMRI or EEG data.
+
+#### NMF
+
+Non-negative matrix factorization is another popular dimensionality reduction technique. It can be applied when your data are all non-negative. Perhaps the most interesting application of this technique is in sequence detection in multi-dimensional time-series data. A variant called seqNMF allows for such data to be factorized into sets of temporal sequences. See Michaele Fee's  [talk](https://www.youtube.com/watch?v=dfvb3IEmCO4) from last MIND for details.
+
+#### Correspondence analysis
+
+Correspondence analysis is a matrix factorization technique that can be applied to categorical data. If your data resemble a contingency or co-occurrence table - i.e., a matrix of counts - then correspondence analysis is a more appropriate option than PCA.
+
+## Multidimensional scaling
+
+Multidimensional scaling (MDS) is a dimensionality reduction technique which takes in distances (or more broadly, dissimilarities) between "objects" (e.g., variables) and attempts to find a configuration (usually 2-D) of those objects which bests fits those distances. The basic idea is perhaps best illustrated using real physical distance. In the code below, we apply MDS to the airline distances between cities in France. We then plot the 2-D configuration the MDS produces.
+
+```{r fig.height=8, fig.width=8}
+layout(mat=matrix(1))
+mdfit <- smacofSym(Guerry,2)
+plot(mdfit) 
+```
+As you can see, the MDS has successfully recovered a quite accurate map of France based on the distances we provided it. This same process can be applied to any measure of the dissimilarity between data objects. This makes it a more flexible technique than PCA: you do not need a set of underlying variables or their correlations to use MDS. So, for instance, if you have similarity ratings between stimuli, MDS would be an obvious choice for visualizing them. 
+
+You might also notice that this map is facing the "wrong" direction. This is an important point: MDS can't recover the "canonical" orientation of the space the configuration it fits. This can make interpreting the dimensions of an MDS solution difficult. We'll return to this topic in a couple of sections to describe a method that can help.
+
+However, let us first consider another example which is more relevant to psych/neuro research. The data that we read in below comes from [Thornton & Mitchell, 2018, Cerebral Cortex](http://markallenthornton.com/cv/Thornton&Mitchell_CC_2017.pdf). In this study we investigated whether dimensional theories of person perception - such as the Big 5 personality traits - could explain the patterns of brain activity elicited by mentalizing about a set of 60 famous people. The data we load in below consists of a set of ratings of these famous people, and the neural pattern similarity between the activity patterns they evoke in participants' brains.
+
+```{r fig.height=8, fig.width=8}
+# read in dimensions
+pdims <- read.csv("dimensions.csv")
+pnames <- as.character(pdims$name)
+pdims <- scale(pdims[,2:14])
+rownames(pdims)<-pnames
+
+# load neural data
+ndat <- read.csv("neural_pattern_similarity.csv")
+
+# average
+nsim <- rowMeans(scale(ndat))
+
+# square shape
+sqnsim <- squareform(nsim)
+
+# name similarity matrix for plotting
+rownames(sqnsim) <- pnames
+colnames(sqnsim) <- pnames
+
+# flip sign and make positive
+psqnsim <- -sqnsim
+psqnsim <- psqnsim - min(psqnsim)
+
+# fit MDS
+mdfit <- smacofSym(psqnsim,2)
+textplot(mdfit$conf[,1],mdfit$conf[,2],pnames,xlim=c(-1,1),ylim=c(-1,1),xlab="Dimension 1",ylab="Dimension 2")
+
+```
+In the MDS plot above, you can see how the algorithm has placed each of the famous people, based on the neural data of participants mentalizing about them. The neural pattern similarity is robustly - though not perfectly - correlated with explicit judgments of the similarity between these people (r = .40), so you should notice subjectively similar people appearing close to one another.
+
+### Assessing fit
+
+Just like PCA, one can choose how many dimensions to allow MDS for its configuration. Generally speaking, it will be easier for MDS to find a good solution in a higher-dimensional space than a lower-dimensional space. However, MDS is used more for visualization than PCA, so assessing the fit of a 2-D solution is really important. The 'smacof' package which we're currently using performs MDS via stress majorization, which is a more powerful algorithm than traditional MDS. Its primary fit metric is called stress, and it encodes how displaced points are in the configuration, relative to what the input dissimilarities imply as the ground truth. Let's start by examining the overall stress:
+
+```{r}
+mdfit$stress
+```
+This value is pretty high, indicating a rather bad fit. A general rule of thumb is that stress < .15 is decent. However, like most rules of thumb, take this one with more than a few grains of salt. The main problem is that overall stress is sensitive to the number of objects being fit. In this case we have 60 (famous people) which is a fairly large number as MDS goes. We can get a better idea about fit - and which specific data points are poorly fit - by examining stress per point, as in the figure below:
+
+
+```{r fig.height=8, fig.width=8}
+plot(mdfit, plot.type = "stressplot",xlim=c(-1,62))
+```
+The plot reveals that a few people are particularly poorly fit by the MDS configuration. Nancy Grace, Michael Jordan, Bob Marley, and Jimmy Fallon are really not where they should be with respect to the other celebrities. This can help us interpret the MDS better. If we're not using the MDS for visualization, we can of course increase the dimensionality until we are happy with the stress. Cross-validation is another tool which can be applied to analytically determine the best dimensionality of an MDS solution.
+
+### Biplots
+
+As we saw before in the case of France, MDS cannot identify the canonical orientation of a configuration. Thus "Dimension 1" of an MDS plot is not an inherently interpretable construct. To help us better understand the dimensions driving the configuration, we can construct biplots. Biplots are arrows plotted over an MDS solution to indicate how much each axis is correlated with some other set of variables. In the figure below, we plot two variables onto the MDS solution: the stereotype content model dimensions of warmth and competence.
+
+```{r fig.height=8, fig.width=8}
+fitbi <- biplotmds(mdfit, pdims[,c("warmth","competence")])
+plot(fitbi, main = "MDS Biplot", vecscale = 0.5,vec.conf =list(col = "red", length = 0.05,cex=1.5))
+```
+As the stereotype content model would predict, these two dimensions map out nearly orthogonally across this person-space. Warmer people are in the top left, and more competence people in the bottom left. The size of the arrows indicates the magnitudes of the correlations with the axes of the MDS (and hence indirectly with the underlying neural data): competence explains much more of the placement of the famous people than does warmth.
+
+The use of biplots can thus help us identify what the canonical orientation of our MDS results might be, at least when 2-D fits are reasonably adequate. If and when a canonical orientation is established, the MDS plot can be appropriately rotated using the Procrutes  transformation, the same algorithm which underlies hyperalignment, also available in the 'smacof' package. Although often used with MDS, biplots can be used with any dimensionality reduction technique that yields a 2-D map.
+
+## UMAP
+
+PCA is a strictly linear dimensionality reduction technique: every variable is a linear combination of components. MDS is an example of nonlinear dimensionality reduction technique. Such techniques are also known as "manifold learning" algorithms. Although MDS can perform some nonlinear mapping, it is still generally attuned to the "global" structure in the data: its solution will bring out the main axes of variation/distance. In this sense it is quite like PCA. However, other manifold learning algorithms focus on the "local" structure in the data: the "clusteriness". One of the most popular algorithms of this kind is called t-SNE (t-distributed Stochastic Neighborhood Embedding). t-SNE learns an embedding which preserves the local information in the data, specifically, the nearest neighbors of each data point. However, if this local information doesn't imply the global structure, the global structure will not appear in the embedding. 
+
+Recently, a new algorithm called UMAP (Uniform Manifold Approximation and Projection) has started to supplant t-SNE. UMAP's visual results often look similar to a t-SNE plot, but it preserves the global as well as local structure in the data. It also has a number of other advantages, including being more computational efficient.
+
+Let's take a look at some of the differences between UMAP, t-SNE, and PCA. The data will use comes from the same study on famous people we've been working with. However, in this case, we have average patterns of brain activity associated with each target person, rather than just the similarities between these patterns. The patterns were extracted from a set of 10,216 voxels chosen for their engagement in mentalizing through reliability-based feature selection. You can see a surface map of these voxels below, or view each of the individual patterns online [here](http://markallenthornton.com/blog/celebrities-on-the-brain/). The regions below are labeled based on discrete clusters of contiguous voxels. The dark blue is all technically one cluster, which is obviously a bit artifactual because it contains many different regions, but in this instance that's actually a feature of this dataset that helps showcase the differences between dimensionality reduction methods.
+
+![](http://markallenthornton.com/images/perclust.png)
+
+```{r}
+# load neual data
+load("person_patterns.Rdata")
+ppats <- scale(ppats)
+load("cid.Rdata")
+```
+
+Our goal here will be to reduce the voxels to a 2-D map based on their respective activity across the 60 famous people. We will do this with each of the three algorithms mentioned above, and then compare the results.
+
+```{r}
+perpca <- prcomp(ppats)
+pertsne <- Rtsne(ppats)
+perumap <- umap(ppats)
+```
+
+
+
+```{r fig.height=8, fig.width=8}
+plot(perpca$x[,1:2],col=jet.colors(15)[cid],pch=19,cex=.1,xlab="PCA D1",ylab="PCA D2",main="PCA")
+plot(pertsne$Y,col=jet.colors(15)[cid],pch=19,cex=.1,xlab="t-SNE D1",ylab="t-SNE D2",main="t-SNE")
+plot(perumap$layout,col=jet.colors(15)[cid],pch=19,cex=.1,xlab="UMAP D1",ylab="UMAP D2",xlim=c(-20,40),ylim=c(-20,40),main="UMAP")
+```
+
+As you can see, PCA does not clearly separate out most brain regions. It's capturing big components of variance in the patterns, but you couldn't really tell that there are discrete contributors to this. t-SNE does a great job of showcasing those discrete regions, and allowing us to see divisions within region, and how some voxels actually cluster across distant regions. UMAP does this too, while doing an even better job at portraying the size and shape of each region (for the single-region clusters). Moreover, the configuration of clusters is meaningful for UMAP in a way that it isn't in the t-SNE. So, for instance, we can see that vMPFC (light blue at right) is very functionally distinct from its spatially nearby dMPFC cousin.
+
+## Prediction
+
+The dimensionality reduction techniques discussed so far have all represented efforts to summarize datasets: how can we capture the statistical regularities in a set of variables with a smaller set of variables? However, in many cases dimensionality reduction is just the first step. Often the features extracted via dimensionality reduction are then used to predict some external criterion - a variable or set of variables which weren't part of the dimensionality reduction technique. For instance, in much of my research, I derive low-dimensional maps of social stimuli - such as people, mental states, or actions - from ratings, and then use those maps to predict the brain activity elicited by those stimuli.
+
+Any dimensionality reduction technique can be used as the first step for a predictive analysis, though some are likely better than others. For instance, dimensions extracted via t-SNE are often not the best choice for use in subsequent regressions because of the way t-SNE discards so much of the global structure of the data. PCA-regression is a commonly used technique, and UMAP regression is theoretically well-founded as well. However, all of these are two-step procedures: perform dimensionality reduction, then regression. There are also dimensionality reduction techniques that are integrated directly with regression, such that the dimensions which are extracted are optimized for prediction. Two popular techniques are partial least squares (PLS) regression, and canonical correlation analysis (CCA).
+
+### Partial least squares
+
+PLS regression is a powerful techniques which combines a factor analysis with a regression. This allows is to take in very high dimensional predictors - which would frustrate an OLS regression - and reduce them to a small set of factor optimized for predicting an external criterion, as well as the predictors themselves.
+
+In the example below, we use a nested cross-validation procedure to parameterize and evaluate a PLS-based multivoxel decoding model. Cross-validation within the 'plsr' function is first used to perform a search over the PLS regression's one major parameter: the number of components. In this case we consider up to 40 components. The optimal component number - i.e., the one which achieve the lowest RMSE - is then used to predict 1/5th of the data which was held out for testing purposes (and this repeats, taking each 5th in turn).
+
+```{r}
+set.seed(1)
+cvinds <- sample(rep(1:5,12))
+cvals <- rep(NA,5)
+preds <- rep(NA,60)
+ncomps <- rep(NA,5)
+for (i in 1:5){
+  sel <- cvinds == i
+  x <- t(ppats[,!sel])
+  y <- pdims[!sel,"competence"]
+  plsfit <- plsr(y~x,40,validation="CV")
+  perf <- RMSEP(plsfit)$val[1,1,]
+  ncomp <- which(perf==min(perf))-1
+  ncomps[i]<-ncomp
+  x <- t(ppats[,sel])
+  preds[sel] <- predict(plsfit,x,ncomp)
+  cvals[i] <- cor(preds[sel],pdims[sel,"competence"])
+}
+mean(cvals) # average correlation between predicted and actual competence
+```
+
+```{r fig.height=8, fig.width=8}
+plot(preds,pdims[,"competence"],xlab="Neural predictions",ylab="Competence ratings",pch=19)
+```
+
+As you can see, this model attains quite high accuracy for a neural decoder, predicting competence ratings at r = .72 on average out of sample. Taking into account the reliability of the neural data, this is pretty close to the best performance one could expect. The PLS-regression used ~6 components on average, which gives us a nice estimate of the dimensionality of the brain's "competence code" (bearing in mind all the usual caveats about interpreting decoding results). Canonical correlation analysis is a similar technique which can be used to predict many Ys from many Xs by effectively conducting factor analyses on each.
