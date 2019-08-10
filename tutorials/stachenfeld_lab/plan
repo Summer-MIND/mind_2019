@@ -1,0 +1,44 @@
+# task graphs (A, xy, obs, p_reward)
+#   line
+#   ring
+#   openbox
+#   four rooms
+#   tree
+#   clique ring
+#   SBM
+#   something more random?
+#   tower of hanoi
+#   dense reward
+
+# representations
+#   state
+#   successor representation
+#   laplacian eigenmaps
+#   PCA
+#   MDS
+#   K-means
+#   geodesic
+#   VAE
+#   SFA
+#   neural net
+#   euclidean PCs
+#
+
+# agent -- steps, updates
+
+# MF model free learner
+#   learn a value function
+#   learn an optimal policy in latent space
+
+# latents exploration?
+
+# plots
+#   rate of reward
+
+# script
+# choose task (A, xy, R)
+# choose representation
+# plot latents (all states, one latent, or all latents, one state)
+# random walk, train learning agent -- should i implement a proper RL agent? maybe no
+# diffusion walk, train learning agent
+
