@@ -1,0 +1,3 @@
+[submodule "tutorials/MIND2019_IM_RL_SR"]
+	path = tutorials/MIND2019_IM_RL_SR
+	url = https://github.com/idamomen/MIND2019_IM_RL_SR.git
