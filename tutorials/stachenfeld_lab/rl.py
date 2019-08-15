@@ -7,9 +7,12 @@ def as_one_hot(ind, n):
     vec[ind] = 1
     return vec
 
-def step(state_ind, transmat):
+def step(state_ind, transmat, atol=1e-7):
     """Take a random step in the task specified by transition matrix."""
-    next_state = np.where(np.random.multinomial(1, transmat[state_ind].reshape(-1)))[0][0]
+    pvals = np.round(transmat[state_ind] / atol) * atol
+    pvals = pvals / np.sum(pvals)
+    next_state_onehot = np.random.multinomial(1, pvals=pvals)
+    next_state = np.where(next_state_onehot)[0][0]
     return next_state
 
 def value_update(reward, value, current_state, next_state, learning_rate, discount, features=None):

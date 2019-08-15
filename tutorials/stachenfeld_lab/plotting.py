@@ -54,7 +54,7 @@ def plot_graph(adj, ax=None, xy=None, show_ticks=False,
 
 
 def plot_many_features(adj, xy, features, nrows=3, ncols=3, figsize=(12, 10), axes=None,
-                       node_size=300, norm_per_feature=False):
+                       node_size=300, norm_per_feature=False, cmap=None):
   """Plot first nrows*ncols features over graph."""
   if axes is None:
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
@@ -65,17 +65,17 @@ def plot_many_features(adj, xy, features, nrows=3, ncols=3, figsize=(12, 10), ax
     vmax = np.max([features.max(), -features.min()])
     if features.min() < 0:
       vmin = -vmax
-      cmap = "RdBu"
+      cmap = "RdBu" if cmap is None else cmap
     else:
       vmin = features.min()
-      cmap = sns.cubehelix_palette(light=1, as_cmap=True)
+      cmap = sns.cubehelix_palette(light=1, as_cmap=True) if cmap is None else cmap
   else:
       vmin = None
       vmax = None
       if features.min() < 0:
-        cmap = "RdBu" 
+        cmap = "RdBu" if cmap is None else cmap
       else:
-        cmap = sns.cubehelix_palette(light=1, as_cmap=True)
+        cmap = sns.cubehelix_palette(light=1, as_cmap=True) if cmap is None else cmap
 
   k = 0
   for i in range(nrows):
